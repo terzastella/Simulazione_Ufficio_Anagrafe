@@ -1,0 +1,15 @@
+# Build e dipendenze
+node_modules/
+dist/
+src-tauri/target/
+# Dati locali
+data/cittadini.csv
+data/export_*
+# Java (solo riferimento, non versionato qui)
+*.class
+build/
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
