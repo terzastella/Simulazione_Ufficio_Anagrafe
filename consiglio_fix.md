@@ -1,144 +1,61 @@
-# consiglio_fix.md — Rilievi sul codice di `Simulazione_Ufficio_Anagrafe`
+# Consigli per migliorare il progetto
 
-> Analisi statica + verifica eseguita su `main` (release 5.3.1).
-> Ogni rilievo indica file e righe, severità, PoC e fix proposto con snippet.
-> Nulla di tutto questo tocca la logica di calcolo del codice fiscale, verificata corretta.
+Ciao! Ho provato il tuo simulatore Anagrafe e mi piace molto. Usandolo ho notato
+alcune cose che potresti migliorare — te le elenco dalla più importante in giù,
+con parole semplici.
 
-## Legenda severità
+## 1. Si può inserire un anno di nascita impossibile (la più importante)
 
-- 🔴 Alta: dato errato o rischio concreto
-- 🟡 Media: igiene / robustezza / sicurezza di contorno
-- ⚪ Bassa: manutenibilità
+Se creo un cittadino e come data metto **01/01/2222**, il programma lo accetta senza
+dire niente e calcola pure un codice fiscale valido. Basta distrarsi digitando l'anno
+e l'archivio si riempie di dati sbagliati.
 
----
+**Consiglio:** accetta solo date comprese tra 120 anni fa e oggi, e se l'utente scrive
+altro mostra un messaggio tipo "Data non valida: deve essere tra … e …" e chiedi di
+nuovo. Se vuoi ti passo il codice già pronto che ho scritto per questo controllo.
 
-## 🔴 F1 — Data di nascita senza controllo di intervallo
+## 2. Attenzione ai nomi "strani" nell'export Excel
 
-**File:** `src/ConsoleUtils.java:121-142` (`readDate`), `:149-183` (`readOptionalDate`), `src/DateUtils.java:26-51`
+Se qualcuno inserisce un cognome che inizia per `=`, `+`, `-` o `@`, quando apri il CSV
+esportato con Excel quel testo può venire eseguito come formula. È un trucco noto e
+basta poco per proteggersi: prima di scrivere le celle nell'export, metti un apostrofo
+davanti a quelle che iniziano con quei caratteri.
 
-**Problema:** il parser valida solo formato e calendario (`STRICT` scarta `30/02` ma accetta `01/01/2222`).
-Si può registrare un cittadino "nato nel 2222" e il codice fiscale generato risulta formalmente valido.
+## 3. Nel repo ci sono file che non dovrebbero starci
 
-**PoC:** alla voce 1 inserire data `01/01/2222` → salvato senza errori.
-
-**Fix proposto** (`DateUtils.java`, aggiungere):
-
-```java
-// nascita valida: da oggi meno 120 anni fino a oggi, estremi inclusi
-public static boolean isValidBirthDate(LocalDate date) {
-    if (date == null) {
-        return false;
-    }
-    LocalDate today = LocalDate.now();
-    return !date.isAfter(today) && !date.isBefore(today.minusYears(120));
-}
-public static String birthRangeLabel() {
-    LocalDate today = LocalDate.now();
-    return formatItalian(today.minusYears(120)) + " - " + formatItalian(today);
-}
-```
-
-e in `readDate` / `readOptionalDate`, dopo il parse:
-
-```java
-if (date.isPresent() && DateUtils.isValidBirthDate(date.get())) {
-    return date.get();
-}
-// messaggio distinto tra formato errato e data fuori intervallo
-```
-
-**Test proposti** (`SelfTest.java`): data futura rifiutata, `2222-01-01` rifiutato,
-`oggi.minusYears(121)` rifiutato, `oggi.minusYears(120)` e `oggi` accettati.
-
----
-
-## 🟡 F2 — Formula injection nell'export CSV
-
-**File:** `src/ExportService.java:49-56` → `src/Cittadino.java` (`toCsvLine`), `src/StringUtils.java:75-80` (`csvEscape`)
-
-**Problema:** `csvEscape` neutralizza solo separatori e virgolette, ma non le celle che iniziano
-per `=`, `+`, `-`, `@`. Apert o il CSV in Excel/LibreOffice, una cella tipo `=CMD(...)` viene
-interpretata come formula. È un vettore classico (OWASP CSV Injection): basta un cognome
-craftato inserito da input.
-
-**Fix proposto:** in `csvEscape` (o in un `csvSafe` dedicato all'export), prefissare con `'`
-(o tab) le celle che iniziano per `= + - @` dopo eventuale trim, prima del quoting.
-
----
-
-## 🟡 F3 — File `.class` committati in `src/`
-
-**File:** `src/*.class` (18 file compilati nel repo)
-
-**Problema:** artefatti di build versionati: diff rumorosi, conflitti frequenti, rischio di eseguire
-bytecode non allineato ai sorgenti.
-
-**Fix proposto:** aggiungere `.gitignore` con `*.class`, `build/`, `dist/`, `target/`, `node_modules/`;
-rimuovere i `.class` tracciati (`git rm --cached src/*.class`); compilare sempre con
+Dentro `src/` ci sono anche i file `.class` (quelli che crea il compilatore). Meglio non
+caricarli su GitHub: creano confusione e possono andare fuori sincrono coi sorgenti.
+Basta un file `.gitignore` con dentro `*.class` e `build/`, e compilare con
 `javac -d build/classes src/*.java`.
 
----
+## 4. I dati sono salvati in chiaro e senza copia di sicurezza
 
-## 🟡 F4 — Dati anagrafici in chiaro, senza backup
+L'archivio `cittadini.csv` contiene nomi e codici fiscali veri in testo libero, e a ogni
+salvataggio il file viene riscritto da zero: se il programma si chiude nel mezzo, i dati
+si possono perdere. Consiglio: prima di salvare, fai una copia del file in una cartella
+`backup` con data e ora nel nome.
 
-**File:** `data/cittadini.csv`, `src/ArchivioService.java`
+## 5. Piccole cose di ordine
 
-**Problema:** nomi, date di nascita e codici fiscali in CSV non cifrato; nessun backup prima
-della riscrittura intera del file (`save()` sovrascrive in place: un crash a metà = archivio perso).
+- I file `.java` stanno tutti senza "pacchetto": se un giorno vuoi riusarli altrove
+  diventa scomodo. Anche uno strumento come Maven aiuterebbe a compilare tutto con un
+  comando solo.
+- Il README parla di `run.sh` e di una cartella `src/anagrafe/`, ma nel repo non ci
+  sono: chi scarica il progetto e segue le istruzioni si perde. Basta aggiornare i
+  percorsi a quelli veri (`src/*.java`).
+- I controlli automatici (`SelfTest`) si lanciano solo a mano: se aggiungi i test veri
+  (JUnit) e un controllo automatico a ogni modifica, gli errori futuri saltano fuori
+  subito.
+- Se due copie del programma sono aperte insieme, possono rovinarsi il CSV a vicenda:
+  in futuro si può scrivere prima su un file temporaneo e poi spostarlo.
 
-**Fix proposto:** prima di ogni `save()`, copiare il CSV esistente in `data/backup/cittadini_<timestamp>.csv`
-(con rotazione, es. ultimi 10). A tendere: valutare cifratura a riposo.
+## Una cosa che hai fatto bene
 
----
+Il lettore del file Excel dei comuni è protetto contro un tipo di attacco chiamato XXE:
+non tutti ci pensano, continua così e non toglierlo se riscrivi quella parte.
 
-## ⚪ F5 — Struttura progetto: `default package`, niente build tool, README non allineato
+## La GUI per Windows
 
-**File:** `src/*.java` (nessuna dichiarazione `package`), root del repo, `README.md`
-
-**Problemi:**
-- Classi nel `default package`: impedisce riuso come libreria e JPMS futuro.
-- Nessun Maven/Gradle: build manuale con `javac`, niente dipendenze/test gestiti.
-- `README.md` cita `./run.sh` e `src/anagrafe/*.java`, ma nel repo non esiste `run.sh` e i sorgenti
-  stanno in `src/*.java` (flat). Chi clona non riesce a partire seguendo il README.
-
-**Fix proposto:** spostare i sorgenti in `src/main/java/anagrafe/` (o almeno `src/anagrafe/`),
-`pom.xml` minimo con `maven-compiler-plugin`, allineare il README ai percorsi reali.
-
----
-
-## ⚪ F6 — Nessun test automatico né CI
-
-**File:** `src/SelfTest.java`
-
-**Problema:** solo assert artigianali lanciati con `--self-test`; nessuna suite JUnit, nessuna
-GitHub Action. Una regressione sul calcolo CF passa inosservata.
-
-**Fix proposto:** JUnit 5 sui casi di `SelfTest` (incluso `RSSMRA80A01H501U` per Mario Rossi Roma
-01/01/1980) + workflow che compila ed esegue i test a ogni push.
-
----
-
-## ⚪ F7 — `ArchivioService`: riscrittura intera senza lock
-
-**File:** `src/ArchivioService.java` (`save()`)
-
-**Problema:** ok per volumi piccoli, ma due istanze concorrenti (o un kill a metà scrittura)
-corrompono il CSV. Nessun file lock, nessuna scrittura atomica.
-
-**Fix proposto:** scrivere su file temporaneo + `Files.move(ATOMIC_MOVE)`; valutare `FileLock`
-se mai girerà multi-istanza.
-
----
-
-## ✅ Nota positiva — XXE già mitigato
-
-**File:** `src/ComuneService.java` (`parseXml`): `disallow-doctype-decl` + `setExpandEntityReferences(false)`.
-Ottimo: il parser XLSX custom resta sicuro contro entity esterne. Da non rimuovere in futuri refactor.
-
----
-
-## Contesto release
-
-La release `5.3.1-Release` distribuisce `Anagr@fe_Setup.exe` (~357 MB, JRE bundlato) e `Anagrfe.pkg` per macOS.
-Una GUI Tauri solo-Windows con core portato in TypeScript produce un installer NSIS da ~1,6 MB
-e un portable da ~5 MB, senza JRE: vedi fork `ANAGRAFE-Windows-GUI`.
+Nel mio fork ho creato anche una versione con finestra per soli Windows (leggera,
+installer da ~1,6MB senza Java da installare): se ti piace l'idea dimmelo e te la
+propongo a parte.
